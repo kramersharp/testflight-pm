@@ -48766,14 +48766,6 @@ class TestFlightClient {
               "pairedAppleWatch",
               "screenWidthInPoints",
               "screenHeightInPoints",
-              "applicationState",
-              "memoryPressure",
-              "batteryLevel",
-              "batteryState",
-              "thermalState",
-              "diskSpaceRemaining",
-              "submissionMethod",
-              "testerNotes",
               "screenshots"
             ].join(",")
           }

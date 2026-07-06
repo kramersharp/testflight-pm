@@ -1062,13 +1062,17 @@ export class TestFlightClient {
 				const detailedScreenshot = await this.getDetailedScreenshotSubmission(screenshot.id, {
 					include: "build,tester",
 					fields: {
+						// NOTE: applicationState, memoryPressure, batteryLevel, batteryState,
+						// thermalState, diskSpaceRemaining, submissionMethod and testerNotes are
+						// NOT valid attributes on betaFeedbackScreenshotSubmissions — requesting
+						// them makes Apple 400 the whole call, so the screenshot image URLs never
+						// come back and no attachment is uploaded. Only request valid fields; the
+						// downstream reads of the omitted attributes are already undefined-guarded.
 						betaFeedbackScreenshotSubmissions: [
 							"createdDate", "comment", "email", "deviceModel", "osVersion",
 							"batteryPercentage", "appUptimeInMilliseconds", "connectionType",
 							"diskBytesAvailable", "diskBytesTotal", "architecture",
 							"pairedAppleWatch", "screenWidthInPoints", "screenHeightInPoints",
-							"applicationState", "memoryPressure", "batteryLevel", "batteryState",
-							"thermalState", "diskSpaceRemaining", "submissionMethod", "testerNotes",
 							"screenshots"
 						].join(",")
 					}
