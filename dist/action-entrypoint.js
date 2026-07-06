@@ -27713,6 +27713,8 @@ class GitHubClient {
   milestonesCache = new Map;
   rateLimitInfo = null;
   lastCacheUpdate = {};
+  assetBranch = "testflight-screenshots";
+  assetBranchReady = false;
   constructor() {
     const envConfig = getConfiguration();
     if (!envConfig.github) {
@@ -28013,27 +28015,13 @@ class GitHubClient {
           });
           continue;
         }
-        const gistDescription = `TestFlight Screenshot - ${feedback.type} - ${feedback.id} - ${screenshot.filename}`;
-        let content;
-        if (screenshot.content instanceof Uint8Array) {
-          content = Buffer.from(screenshot.content).toString("base64");
-        } else {
-          content = screenshot.content;
-        }
-        const gist = await this.createGist({
-          description: gistDescription,
-          public: false,
-          files: {
-            [screenshot.filename]: {
-              content
-            }
-          }
-        });
+        const base64Content = screenshot.content instanceof Uint8Array ? Buffer.from(screenshot.content).toString("base64") : screenshot.content;
+        const rawUrl = await this.commitScreenshotToAssetBranch(feedback, screenshot.filename, base64Content);
         results.uploaded++;
         results.details.push({
           filename: screenshot.filename,
           success: true,
-          url: gist.html_url
+          url: rawUrl
         });
       } catch (error) {
         results.failed++;
@@ -28050,6 +28038,42 @@ class GitHubClient {
   async createGist(gistData) {
     const response = await this.makeApiRequest("POST", "/gists", gistData);
     return response.data;
+  }
+  async ensureAssetBranch() {
+    if (this.assetBranchReady)
+      return;
+    const { owner, repo } = this.config;
+    try {
+      await this.makeApiRequest("GET", `/repos/${owner}/${repo}/git/ref/heads/${this.assetBranch}`);
+      this.assetBranchReady = true;
+      return;
+    } catch {}
+    const repoInfo = await this.makeApiRequest("GET", `/repos/${owner}/${repo}`);
+    const baseRef = await this.makeApiRequest("GET", `/repos/${owner}/${repo}/git/ref/heads/${repoInfo.data.default_branch}`);
+    await this.makeApiRequest("POST", `/repos/${owner}/${repo}/git/refs`, {
+      ref: `refs/heads/${this.assetBranch}`,
+      sha: baseRef.data.object.sha
+    });
+    this.assetBranchReady = true;
+  }
+  async commitScreenshotToAssetBranch(feedback, filename, base64Content) {
+    await this.ensureAssetBranch();
+    const { owner, repo } = this.config;
+    const safeName = filename.replace(/[^A-Za-z0-9._-]/g, "_");
+    const path = `screenshots/${feedback.id}/${safeName}`;
+    const apiPath = `/repos/${owner}/${repo}/contents/${path}`;
+    let existingSha;
+    try {
+      const existing = await this.makeApiRequest("GET", `${apiPath}?ref=${this.assetBranch}`);
+      existingSha = existing.data.sha;
+    } catch {}
+    await this.makeApiRequest("PUT", apiPath, {
+      message: `TestFlight screenshot: ${feedback.id}/${safeName}`,
+      content: base64Content,
+      branch: this.assetBranch,
+      ...existingSha ? { sha: existingSha } : {}
+    });
+    return `https://github.com/${owner}/${repo}/raw/${this.assetBranch}/${path}`;
   }
   async getRateLimit() {
     const response = await this.makeApiRequest("GET", "/rate_limit");
@@ -28441,7 +28465,10 @@ ${feedback.crashData.trace}
 `;
     for (const detail of attachmentResults.details) {
       if (detail.success && detail.url) {
-        screenshotSection += `- [${detail.filename}](${detail.url})
+        screenshotSection += `![${detail.filename}](${detail.url})
+
+[${detail.filename}](${detail.url})
+
 `;
       } else {
         screenshotSection += `- ❌ ${detail.filename} (failed to upload)
