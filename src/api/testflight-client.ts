@@ -1114,11 +1114,14 @@ export class TestFlightClient {
 	): Promise<EnhancedScreenshotImage[]> {
 		return screenshots.map((screenshot, index) => ({
 			url: screenshot.url,
-			fileName: screenshot.fileName,
+			fileName:
+				screenshot.fileName ||
+				this.extractFileNameFromUrl(screenshot.url) ||
+				`screenshot-${index + 1}.png`,
 			fileSize: screenshot.fileSize,
 			expiresAt: new Date(screenshot.expiresAt),
 			// Additional enhanced properties (would be available from Apple's detailed API)
-			imageFormat: this.extractImageFormat(screenshot.fileName),
+			imageFormat: this.extractImageFormat(screenshot.fileName, screenshot.url),
 			imageScale: 1.0, // Default scale, could be enhanced with actual data
 			imageDimensions: {
 				width: 0, // Would be provided by detailed API
@@ -1135,8 +1138,15 @@ export class TestFlightClient {
 	/**
 	 * Extracts image format from filename
 	 */
-	private extractImageFormat(fileName: string): "png" | "jpeg" | "heic" {
-		const extension = fileName.toLowerCase().split('.').pop();
+	private extractImageFormat(
+		fileName?: string,
+		url?: string,
+	): "png" | "jpeg" | "heic" {
+		// Apple's betaFeedbackScreenshotSubmissions sometimes omits fileName; fall
+		// back to the (expiring) asset URL, and strip any query string before
+		// reading the extension. Guarding here prevents a crash on undefined.
+		const source = ((fileName || url || "").split("?")[0] ?? "").toLowerCase();
+		const extension = source.split(".").pop();
 		switch (extension) {
 			case 'png':
 				return 'png';
@@ -1148,6 +1158,17 @@ export class TestFlightClient {
 			default:
 				return 'png'; // Default fallback
 		}
+	}
+
+	/**
+	 * Best-effort filename from an Apple asset URL (strips query string).
+	 * Returns undefined when no usable path segment is present.
+	 */
+	private extractFileNameFromUrl(url?: string): string | undefined {
+		if (!url) return undefined;
+		const path = url.split("?")[0] ?? "";
+		const last = path.split("/").pop();
+		return last && last.includes(".") ? last : undefined;
 	}
 
 	/**
@@ -1237,9 +1258,12 @@ export class TestFlightClient {
 			} : undefined,
 			screenshotData: {
 				text: feedbackText,
-				images: attrs.screenshots.map((img) => ({
+				images: attrs.screenshots.map((img, index) => ({
 					url: img.url,
-					fileName: img.fileName,
+					fileName:
+						img.fileName ||
+						this.extractFileNameFromUrl(img.url) ||
+						`screenshot-${index + 1}.png`,
 					fileSize: img.fileSize,
 					expiresAt: new Date(img.expiresAt),
 				})),
